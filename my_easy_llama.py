@@ -327,7 +327,6 @@ class LlamaPreTrainedModel(PreTrainedModel):
          module.weight.data.normal_(mean=0.0, std=std)
          if module.padding_idx is not None:
             module.weight.data[module.padding_idx].zero_()
-   # 默认不开启gradient_checkponiting
    def _set_gradient_checkpointing(self, module, value=False):
       if isinstance(module, LlamaModel):
          module.gradient_checkponiting = value
@@ -398,7 +397,7 @@ class LlamaModel(LlamaPreTrainedModel):
          device = input_ids.device if input_ids is not None else inputs_embeds.device
          position_ids = torch.arange(past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device)
          position_ids = position_ids.unsqueeze(0)
-
+      # 没有给inputs_embeds，则初始化
       if inputs_embeds is None:
          inputs_embeds = self.embed_tokens(input_ids)
 
