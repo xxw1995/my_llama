@@ -27,10 +27,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
    return q_embed, k_embed
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
-   """
-   This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
-   num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
-   """
    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
    if n_rep == 1:
       return hidden_states
@@ -53,14 +49,9 @@ def _make_causal_mask(
    return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
 
 def _expand_mask(mask, dtype, tgt_len = None):
-   """
-   Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`.
-   """
    bsz, src_len = mask.size()
    tgt_len = tgt_len if tgt_len is not None else src_len
-
    expanded_mask = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(dtype)
-
    inverted_mask = 1.0 - expanded_mask
 
    return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
@@ -83,7 +74,7 @@ class LlamaRotaryEmbedding(nn.Module):
         super().__init__()
         self.dim = dim
         self.max_position_embeddings = max_position_embeddings
-        self.base = base # 10000
+        self.base = base
         inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2).float().to(device) / self.dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self._set_cos_sin_cache(
@@ -160,7 +151,7 @@ class LlamaAttention(nn.Module):
          if past_key_value is not None:
             key_states = torch.cat([past_key_value[0], key_states], dim=2)
             value_states = torch.cat([past_key_value[1], key_states], dim=2)
-
+            
          past_key_value = (key_states, value_states) if use_cache else None
 
          key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -180,7 +171,6 @@ class LlamaAttention(nn.Module):
          return attn_output, attn_weights, past_key_value
 
 class LlamaMLP(nn.Module):
-
    def __init__(self, config:LlamaConfig):
       super().__init__()
       self.hidden_size = config.hidden_size
@@ -262,7 +252,6 @@ class LlamaPreTrainedModel(PreTrainedModel):
          module.gradient_checkponiting = value
 
 class LlamaModel(LlamaPreTrainedModel):
-
    def __init__(self, config:LlamaConfig):
       super().__init__(config)
       self.padding_idx = config.pad_token_id
@@ -275,7 +264,6 @@ class LlamaModel(LlamaPreTrainedModel):
       self.post_init()
 
    def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds, past_key_values_length):
-
       combined_attention_mask = None
       if input_shape[-1] > 1:
          combined_attention_mask = _make_causal_mask(
