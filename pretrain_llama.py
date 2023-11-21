@@ -4,7 +4,7 @@ from transformers import DataCollatorForLanguageModeling
 from argument import ModelArguments, DataArguments, FinetuningArguments, GeneratingArguments, GeneralArguments
 from dataset_loader import get_dataset, preprocess_dataset, split_dataset
 from load_tokenizer_model import load_model_and_tokenizer
-from xxwTrainer import xxwTrainer
+from mytrainer import mytrainer
 
 model_args, data_args, \
 training_args, finetuning_args, \
@@ -22,7 +22,7 @@ dataset = preprocess_dataset(dataset, tokenizer, data_args, training_args, stage
 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False) # 后处理data_collator
 
 # trainer
-trainer = xxwTrainer(
+trainer = mytrainer(
         finetuning_args=finetuning_args,
         model=model,
         args=training_args,
