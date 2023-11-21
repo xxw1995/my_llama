@@ -36,7 +36,7 @@ def load_trainable_params(model, checkpoint_dir):
     return True
 
 
-class xxwTrainer(Seq2SeqTrainer):
+class mytrainer(Seq2SeqTrainer):
 
     def __init__(self, finetuning_args, **kwargs):
         Seq2SeqTrainer.__init__(self, **kwargs)
