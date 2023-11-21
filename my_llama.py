@@ -1,7 +1,9 @@
 """
-Author: xxw
+Author: xuxuanwen xuxuanwen@bytedance.com
 Date: 2023-11-20 01:15:25
+LastEditors: xuxuanwen xuxuanwen@bytedance.com
 LastEditTime: 2023-11-20 07:00:58
+FilePath: /xuxuanwen/personal/LLaMA-Efficient-Tuning/xxw_llama_tests/modeling_llama_easy.py
 """
 import math
 import torch
@@ -14,11 +16,12 @@ from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutpu
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.llama.configuration_llama import LlamaConfig
 
+
 def rotate_half(x):
-   """Rotates half the hidden dims of the input."""
    x1 = x[..., : x.shape[-1] // 2]
    x2 = x[..., x.shape[-1] // 2 :]
    return torch.cat((-x2, x1), dim=-1)
+
 
 # 做的就是q矩阵、k矩阵和(sinmθ + cosmθ)的矩阵相乘 -> 返回的是注入了RoPE的q和k矩阵
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
@@ -30,6 +33,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
    k_embed = (k * cos) + (rotate_half(k) * sin)
    # 返回带RoPE的q和k
    return q_embed, k_embed
+
 
 # xxw 实现GQA的关键
 # repeat k/v heads if n_kv_heads < n_heads
@@ -43,6 +47,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
       return hidden_states
    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
 
 # xxw 构造attention_mask的核心函数
 def _make_causal_mask(
@@ -92,8 +97,8 @@ def _make_causal_mask(
    #         [[[0.0000e+00, 1.0000e-09, 1.0000e-09],
    #           [0.0000e+00, 0.0000e+00, 1.0000e-09],
    #           [0.0000e+00, 0.0000e+00, 0.0000e+00]]]])
-
    return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length)
+
 
 # xxw 扩展出一个[bsz, 1, tgt_seq_len, src_seq_len]的矩阵
 def _expand_mask(mask, dtype, tgt_len = None):
@@ -109,6 +114,7 @@ def _expand_mask(mask, dtype, tgt_len = None):
 
    return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(dtype).min)
 
+
 class LlamaRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
         super().__init__()
@@ -121,6 +127,7 @@ class LlamaRMSNorm(nn.Module):
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
         return self.weight * hidden_states.to(input_dtype)
+
 
 class LlamaRotaryEmbedding(nn.Module):
     def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None):
@@ -161,6 +168,7 @@ class LlamaRotaryEmbedding(nn.Module):
             self.cos_cached[:seq_len].to(dtype=x.dtype),
             self.sin_cached[:seq_len].to(dtype=x.dtype),
         )
+
 
 class LlamaAttention(nn.Module):
 
@@ -245,6 +253,7 @@ class LlamaAttention(nn.Module):
 
          return attn_output, attn_weights, past_key_value
 
+
 class LlamaMLP(nn.Module):
 
    def __init__(self, config:LlamaConfig):
@@ -309,6 +318,7 @@ class LlamaDecoderLayer(nn.Module):
 
       return output
 
+
 class LlamaPreTrainedModel(PreTrainedModel):
    config_class = LlamaConfig
    base_model_prefix = "model"
@@ -332,8 +342,8 @@ class LlamaPreTrainedModel(PreTrainedModel):
       if isinstance(module, LlamaModel):
          module.gradient_checkponiting = value
 
-class LlamaModel(LlamaPreTrainedModel):
 
+class LlamaModel(LlamaPreTrainedModel):
    def __init__(self, config:LlamaConfig):
       super().__init__(config)
       self.padding_idx = config.pad_token_id
@@ -463,6 +473,7 @@ class LlamaModel(LlamaPreTrainedModel):
          attentions=all_self_attns,
       )
 
+
 class LlamaForCasualLM(LlamaPreTrainedModel):
    def __init__(self, config):
       super().__init__(config)
@@ -526,6 +537,7 @@ class LlamaForCasualLM(LlamaPreTrainedModel):
          hidden_states=output.hidden_states,
          attentions=outputs.attentions,
       )
+
 
 class LlamaForSequenceClassification(LlamaPreTrainedModel):
    def __init__(self, config):
@@ -621,6 +633,232 @@ class LlamaForSequenceClassification(LlamaPreTrainedModel):
          hidden_states=outputs.hidden_states,
          attentions=outputs.attentions,
       )
+
+
+class MyCausalLM(LlamaForCasualLM):
+   def forward(
+           self,
+           input_ids,
+           attention_mask,
+           position_ids,
+           past_key_values,
+           inputs_embeds,
+           labels,
+           use_cache,
+           output_attentions,
+           output_hidden_states,
+           return_dict):
+      output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+      output_hidden_states = (
+         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+      )
+      return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+      outputs = self.model(
+         input_ids=input_ids,
+         attention_mask=attention_mask,
+         position_ids=position_ids,
+         past_key_values=past_key_values,
+         inputs_embeds=inputs_embeds,
+         use_cache=use_cache,
+         output_attentions=output_attentions,
+         output_hidden_states=output_hidden_states,
+         return_dict=return_dict,
+      )
+
+      hidden_states = outputs[0]
+      if self.config.pretraining_tp > 1:
+         lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
+         logits = [nn.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
+         logits = torch.cat(logits, dim=-1)
+      else:
+         logits = self.lm_head(hidden_states)
+      logits = logits.float()
+
+      loss = None
+      # xxw add new z_loss
+      if labels is not None:
+         # Shift so that tokens < n predict n
+         shift_logits = logits[..., :-1, :].contiguous()
+         shift_labels = labels[..., 1:].contiguous()
+         # Flatten the tokens
+         loss_fct = CrossEntropyLoss()
+         shift_logits = shift_logits.view(-1, self.config.vocab_size)
+         shift_labels = shift_labels.view(-1)
+         softmax_normalizer = shift_logits.max(-1).values ** 2
+
+         sorted_indices = torch.argsort(shift_logits, dim=-1)
+         second_largest_index = sorted_indices[:, -2]
+
+         second_largest_value = torch.gather(shift_logits, dim=-1, index=second_largest_index.unsqueeze(-1))
+         second_largest_value = torch.squeeze(second_largest_value)
+
+         z_loss = 2 * 10 ** (-4) * (softmax_normalizer.mean() - second_largest_value.mean())
+         z_loss1 = 2 * 10 ** (-4) * (softmax_normalizer.mean())
+         print("z_loss:", z_loss)
+         print("z_loss1:", z_loss1)
+         # Enable model parallelism
+         shift_labels = shift_labels.to(shift_logits.device)
+         print("ori_loss:", loss_fct(shift_logits, shift_labels))
+         loss = loss_fct(shift_logits, shift_labels) + z_loss
+
+      if not return_dict:
+         output = (logits,) + outputs[1:]
+         return (loss,) + output if loss is not None else output
+
+      return CausalLMOutputWithPast(
+         loss=loss,
+         logits=logits,
+         past_key_values=outputs.past_key_values,
+         hidden_states=outputs.hidden_states,
+         attentions=outputs.attentions,
+      )
+
+
+# longlora
+class MyAttention(LlamaAttention):
+    def forward(
+         self,
+         hidden_states,
+         attention_mask=None,
+         position_ids=None,
+         past_key_value=None,
+         output_attentions=False,
+         use_cache=False,
+         padding_mask = None):
+
+        bsz, q_len, _ = hidden_states.size()
+        group_size_ratio = 0.25
+        group_size = int(q_len * group_size_ratio)
+
+        if q_len % group_size > 0:
+            raise ValueError("q_len %d should be divisible by group size %d."%(q_len, group_size))
+        num_group = q_len // group_size
+
+        if self.config.pretraining_tp > 1:
+            key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
+            query_slices = self.q_proj.weight.split(
+                (self.num_heads * self.head_dim) // self.config.pretraining_tp, dim=0
+            )
+            key_slices = self.k_proj.weight.split(key_value_slicing, dim=0)
+            value_slices = self.v_proj.weight.split(key_value_slicing, dim=0)
+
+            query_states = [nn.linear(hidden_states, query_slices[i]) for i in range(self.config.pretraining_tp)]
+            query_states = torch.cat(query_states, dim=-1)
+
+            key_states = [nn.linear(hidden_states, key_slices[i]) for i in range(self.config.pretraining_tp)]
+            key_states = torch.cat(key_states, dim=-1)
+
+            value_states = [nn.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
+            value_states = torch.cat(value_states, dim=-1)
+        else:
+            # xxw 得到qkv
+            query_states = self.q_proj(hidden_states)
+            key_states = self.k_proj(hidden_states)
+            value_states = self.v_proj(hidden_states)
+
+        # xxw qkv变换维度 -> MQA / GQA
+        # 使用view函数进行多头机制的拆分
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        print("ori query_states shape:", query_states.shape)
+        print("ori key_states shape:", key_states.shape)
+        print("ori value_states shape:", value_states.shape)
+
+
+        kv_seq_len = key_states.shape[-2]
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[-2]
+        # xxw 得到cosmθ, sinmθ矩阵
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        # xxw 利用cosmθ+sinmθ矩阵，将相对位置信息注入到qk中
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        # xxw 是否用了之前状态的kv
+        # 用的话可以加速推理
+        if past_key_value is not None:
+            # xxw 前面的k加到当前的key_states上，得到当前时刻的key_states
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            # xxw 前面的v加到当前的key_states上，得到当前时刻的value_states
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+        # xxw -> attention中使用的kv_cache
+        past_key_value = (key_states, value_states) if use_cache else None
+
+        # xxw 重复多组kv，实现Group Query Attention
+        # 当self.num_key_value_groups=1时，相当于没变
+        # 当self.num_key_value_groups=2时，num_heads的数量x2
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+        def shift(qkv, bsz, q_len, group_size, num_heads, head_dim):
+            # roll函数 -> 沿着给定轴滚动数组元素。超出最后位置的元素将会滚动到第一个位置
+            qkv[:, num_heads // 2:] = qkv[:, num_heads // 2:].roll(-group_size // 2, dims=2)
+            # 将q_len分成4组,每一组的维度是group_size
+            qkv = qkv.transpose(1, 2).reshape(bsz * (q_len // group_size), group_size, num_heads, head_dim).transpose(1, 2)
+            return qkv
+
+        # 经过滚动处理的qkv
+        query_states = shift(query_states, bsz, q_len, group_size, self.num_heads, self.head_dim)
+        key_states = shift(key_states, bsz, q_len, group_size, self.num_heads, self.head_dim)
+        value_states = shift(value_states, bsz, q_len, group_size, self.num_heads, self.head_dim)
+        print("new query_states shape:", query_states.shape)
+        print("new key_states shape:", key_states.shape)
+        print("new value_states shape:", value_states.shape)
+
+        # xxw 最后计算attn_weights = q * k / √dk
+        # [bsz, num_heads，q_len, head_dim]*[bsz, num_heads, head_dim, q_len]=[bsz, num_heads，q_len, q_len]
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+        if attn_weights.size() != (bsz * num_group, self.num_heads, group_size, group_size):
+        #if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
+        attention_mask = attention_mask[:, :, :group_size, :group_size].repeat(num_group, 1, 1, 1)
+        # xxw attn_weights叠加上attention_mask
+        if attention_mask is not None:
+            if attention_mask.size() != (bsz * num_group, 1, group_size, group_size):
+            #if attention_mask.size() != (bsz, 1, q_len, kv_seq_len)dd:
+                raise ValueError(
+                    f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
+                )
+            # xxw 注意力做attention_mask
+            attn_weights = attn_weights + attention_mask
+
+        # upcast attention to fp32
+        # xxw 做softmax将权重变为0-1
+        attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        # 最后和v相乘得到概率值
+        attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (bsz * num_group, self.num_heads, group_size, self.head_dim):
+        #if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+        # xxw 修改维度
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        # xxw 恢复形状
+        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+
+        # shift back
+        attn_output[:, :, self.num_heads//2:] = attn_output[:, :, self.num_heads//2:].roll(group_size//2, dims=1)
+        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+
+        if self.config.pretraining_tp > 1:
+            attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
+            o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
+            attn_output = sum([F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)])
+        else:
+            # xxw 最后再做一次线性变换
+            attn_output = self.o_proj(attn_output)
+
+        if not output_attentions:
+            attn_weights = None
+        return attn_output, attn_weights, past_key_value
+
 
 
 
