@@ -1,4 +1,4 @@
- import os
+import os
 import sentencepiece as spm
 from sentencepiece import sentencepiece_model_pb2 as sp_pb2_model
 from transformers import LlamaTokenizer, AutoModelForCausalLM, AutoTokenizer
