@@ -1,10 +1,3 @@
-"""
-Author: xuxuanwen xuxuanwen@bytedance.com
-Date: 2023-11-20 01:15:25
-LastEditors: xuxuanwen xuxuanwen@bytedance.com
-LastEditTime: 2023-11-20 07:00:58
-FilePath: /xuxuanwen/personal/LLaMA-Efficient-Tuning/xxw_llama_tests/modeling_llama_easy.py
-"""
 import math
 import torch
 import torch.utils.checkpoint
