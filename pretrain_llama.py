@@ -5,16 +5,10 @@ from argument import ModelArguments, DataArguments, FinetuningArguments, Generat
 from dataset_loader import get_dataset, preprocess_dataset, split_dataset
 from load_tokenizer_model import load_model_and_tokenizer
 from mytrainer import mytrainer
+from parser import get_train_args
+import argparse
 
-model_args, data_args, \
-training_args, finetuning_args, \
-generating_args, general_args = HfArgumentParser((
-                                  ModelArguments,
-                                  DataArguments,
-                                  Seq2SeqTrainingArguments,
-                                  FinetuningArguments,
-                                  GeneratingArguments,
-                                  GeneralArguments)).parse_args_into_dataclasses()
+model_args, data_args, training_args, finetuning_args, generating_args, general_args = get_train_args(args=None)
 
 dataset = get_dataset(model_args, data_args) # 获取数据集
 model, tokenizer = load_model_and_tokenizer(model_args, data_args, training_args, finetuning_args, training_args.do_train, stage="pt") # 获取model tokenizer
@@ -32,7 +26,9 @@ trainer = mytrainer(
 
 # Training
 if training_args.do_train:
+    print("xxw training_args.resume_from_checkpoint:", training_args.resume_from_checkpoint)
     train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
+    #train_result = trainer.train()
     trainer.log_metrics("train", train_result.metrics)
     trainer.save_metrics("train", train_result.metrics)
     trainer.save_state()
