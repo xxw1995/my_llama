@@ -23,13 +23,15 @@ import argparse
 import bitsandbytes as bnb
 from transformers.deepspeed import is_deepspeed_zero3_enabled
 from trl import AutoModelForCausalLMWithValueHead
-from transformers.models.llama import modeling_llama_easy as LlamaModule
-from transformers.models.llama.modeling_llama_easy import MyCausalLM, MyAttention
+import my_llama_base as LlamaModule
+from my_llama_base import MyCausalLM, MyAttention
 from transformers.trainer import WEIGHTS_NAME, WEIGHTS_INDEX_NAME
 from transformers.modeling_utils import load_sharded_checkpoint
 
 VALUE_HEAD_FILE_NAME = "value_head.bin"
+LAYERNORM_NAMES = ["norm", "ln_f", "ln_attn", "ln_mlp"]
 
+# xxw add
 def find_all_linear_names(args, model):
     cls = bnb.nn.Linear4bit if args.bits == 4 else (bnb.nn.Linear8bitLt if args.bits == 8 else torch.nn.Linear)
     lora_module_names = set()
@@ -84,6 +86,7 @@ def init_adapter(model, model_args, data_args, training_args, finetuning_args, i
             )
             model = get_peft_model(model, lora_config)
 
+    # xxw add all linear lora
     if finetuning_args.finetuning_type == "lora_all_linear":
         print("Fine-tuning method: LoRA")
         latest_checkpoint = None
@@ -246,6 +249,7 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
         setattr(config, "rope_scaling", {"type": model_args.rope_scaling, "factor": scaling_factor})
         print("Using {} scaling strategy and setting scaling factor to {}".format(model_args.rope_scaling, scaling_factor))
 
+    # xxw add patches
     # LlamaModule.LlamaAttention = MyAttention
     LlamaModule.LlamaForCausalLM = MyCausalLM
 
@@ -256,6 +260,7 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
             raise ValueError("DeepSpeed ZeRO-3 is incompatible with quantization.")
 
         if model_args.quantization_bit == 8:
+            print("xxw quantization_bit 8bits")
             config_kwargs["load_in_8bit"] = True
             config_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
 
@@ -272,7 +277,7 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
         config_kwargs["device_map"] = {"": int(os.environ.get("LOCAL_RANK", "0"))} if is_trainable else "auto"
         print("Quantizing model to {} bit.".format(model_args.quantization_bit))
 
-    # full微调的时候没走量化，需要再指定一下
+    # xxw core -> full 微调的时候没走量化，需要再指定一下
     config_kwargs["device_map"] = {"": int(os.environ.get("LOCAL_RANK", "0"))} if is_trainable else "auto"
 
     # Load and prepare pre-trained models (without valuehead).
@@ -283,6 +288,7 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
         low_cpu_mem_usage=(not is_deepspeed_zero3_enabled()),
         **config_kwargs
     )
+    # xxw add
     if tokenizer._pad_token is None:
         smart_tokenizer_and_embedding_resize(
             special_tokens_dict=dict(pad_token="[PAD]"),
@@ -290,7 +296,8 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
             model=model,)
 
     for i, (name, layer) in enumerate(model.named_parameters()):
-        print("first: name:{}, layer.dtype:{}, layer.device:{}".format(name, layer.dtype, layer.device))
+        print("xxw first: name:{}, layer.dtype:{}, layer.device:{}".format(name, layer.dtype, layer.device))
+    # xxw add done
 
     # Fix LM head (for ChatGLM2)
     if not hasattr(model, "lm_head") and hasattr(model, "transformer"):
@@ -309,7 +316,7 @@ def load_model_and_tokenizer(model_args, data_args, training_args, finetuning_ar
     model = init_adapter(model, model_args, data_args, training_args, finetuning_args, is_trainable, is_mergeable)
 
     for i, (name, layer) in enumerate(model.named_parameters()):
-        print("add second: name:{}, layer.dtype:{}, layer.device:{}".format(name, layer.dtype, layer.device))
+        print("second: name:{}, layer.dtype:{}, layer.device:{}".format(name, layer.dtype, layer.device))
 
     # Prepare model with valuehead for RLHF
     if stage == "rm" or stage == "ppo":
