@@ -33,6 +33,8 @@ class ModelArguments:
         default="left",
         metadata={"help": "The side on which the model should have padding applied."}
     )
+    # xxw 这里默认没开启
+    # 可以使用4bit/8bit量化
     quantization_bit: Optional[int] = field(
         default=None,
         metadata={"help": "The number of bits to quantize the model."}
@@ -107,9 +109,6 @@ class DatasetAttr:
 
 @dataclass
 class DataArguments:
-    r"""
-    Arguments pertaining to what data we are going to input our model for training and evaluation.
-    """
     template: str = field(
         metadata={"help": "Which template to use for constructing prompts in training and inference."}
     )
@@ -284,6 +283,11 @@ class FinetuningArguments:
         metadata={"help": "Number of decoder blocks in the model for partial-parameter (freeze) fine-tuning. \
                   LLaMA choices: [\"32\", \"40\", \"60\", \"80\"], \
                   LLaMA-2 choices: [\"32\", \"40\", \"80\"], \
+                  BLOOM choices: [\"24\", \"30\", \"70\"], \
+                  Falcon choices: [\"32\", \"60\"], \
+                  Baichuan choices: [\"32\", \"40\"] \
+                  Qwen choices: [\"32\"], \
+                  XVERSE choices: [\"40\"], \
                   ChatGLM2 choices: [\"28\"]"}
     )
     num_layer_trainable: Optional[int] = field(
@@ -295,7 +299,9 @@ class FinetuningArguments:
         default="mlp self_attn",
         metadata={"help": "Name of trainable modules for partial-parameter (freeze) fine-tuning. \
                   LLaMA choices: [\"mlp\", \"self_attn\"], \
-                  ChatGLM2 choices: [\"mlp\", \"self_attention\"], \
+                  BLOOM & Falcon & ChatGLM2 choices: [\"mlp\", \"self_attention\"], \
+                  Baichuan choices: [\"mlp\", \"self_attn\"], \
+                  Qwen choices: [\"mlp\", \"attn\"], \
                   LLaMA-2, InternLM, XVERSE choices: the same as LLaMA."}
     )
     lora_rank: Optional[int] = field(
@@ -337,6 +343,7 @@ class FinetuningArguments:
     )
 
     def __post_init__(self):
+        # xxw add for gpu info
         if isinstance(self.gpu_info, str):
             major, minor = torch.cuda.get_device_capability()
             print("major:{}\tminor:{}\tcurrent_device:{}".format(major, minor, torch.cuda.current_device()))
