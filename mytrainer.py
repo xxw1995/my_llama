@@ -11,7 +11,6 @@ from transformers.modeling_utils import load_sharded_checkpoint
 FINETUNING_ARGS_NAME = "finetuning_args.json"
 VALUE_HEAD_FILE_NAME = "value_head.bin"
 
-
 def get_state_dict(model):
     state_dict = model.state_dict()
     filtered_state_dict = {}
@@ -21,7 +20,6 @@ def get_state_dict(model):
             filtered_state_dict[k] = state_dict[k].cpu().clone().detach()
 
     return filtered_state_dict
-
 
 def load_trainable_params(model, checkpoint_dir):
     weights_file = os.path.join(checkpoint_dir, WEIGHTS_NAME)
@@ -38,17 +36,19 @@ def load_trainable_params(model, checkpoint_dir):
 
 class mytrainer(Seq2SeqTrainer):
 
-    def __init__(self, finetuning_args, **kwargs):
-        Seq2SeqTrainer.__init__(self, **kwargs)
-        self.finetuning_args = finetuning_args,
-        self.model = None
-        self.tokenizer = None
-        self.args = None
-        self.state = None
+    def __init__(self, finetuning_args: "FinetuningArguments", **kwargs):
+        #Seq2SeqTrainer.__init__(self, **kwargs)
+        super().__init__(**kwargs)
+        self.finetuning_args = finetuning_args
+        self.model: PreTrainedModel = kwargs.get('model')
+        self.tokenizer: "PreTrainedTokenizer" = None
+        self.args: "Seq2SeqTrainingArguments" = kwargs.get('args')
+        self.state: "TrainerState" = None
 
     def _save(self, output_dir = None, state_dict = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
+        print(f"Saving model checkpoint to {output_dir}")
 
         model = unwrap_model(self.model)
         if isinstance(model, PreTrainedModelWrapper):
@@ -57,6 +57,7 @@ class mytrainer(Seq2SeqTrainer):
                 name.replace("v_head.", ""): model_state_dict[name].cpu().clone().detach()
                 for name in model_state_dict.keys() if name.startswith("v_head.")
             }
+
             torch.save(v_head_state_dict, os.path.join(output_dir, VALUE_HEAD_FILE_NAME))
             model = model.pretrained_model
 
@@ -81,6 +82,7 @@ class mytrainer(Seq2SeqTrainer):
 
     def _load_best_model(self):
         model = unwrap_model(self.model)
+
         if isinstance(model, PreTrainedModelWrapper):
             model.v_head.load_state_dict(torch.load(
                 os.path.join(self.state.best_model_checkpoint, VALUE_HEAD_FILE_NAME), map_location="cpu"
@@ -89,5 +91,6 @@ class mytrainer(Seq2SeqTrainer):
 
         if isinstance(model, PeftModel):
             model.load_adapter(self.state.best_model_checkpoint, model.active_adapter)
-        else:  # freeze/full-tuning
+        else: # freeze/full-tuning
             load_trainable_params(model, self.state.best_model_checkpoint)
+
