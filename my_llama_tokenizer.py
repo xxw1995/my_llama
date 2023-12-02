@@ -1,4 +1,6 @@
 import os
+import torch
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"]="python"
 import sentencepiece as spm
 from sentencepiece import sentencepiece_model_pb2 as sp_pb2_model
 from transformers import LlamaTokenizer, AutoModelForCausalLM, AutoTokenizer
@@ -18,8 +20,8 @@ def add_vocab_2_llama(llama_tokenizer_dir, chinese_sp_model_file, output_sp_dir,
 
     llama_tokenizer_dir = llama_tokenizer_dir
     chinese_sp_model_file = chinese_sp_model_file
-
-    llama_tokenizer = LlamaTokenizer.from(llama_tokenizer_dir) # len(llama_tokenizer) == 32000
+    # len(llama_tokenizer) == 32000
+    llama_tokenizer = LlamaTokenizer.from_pretrained(llama_tokenizer_dir)
     llama_spm = sp_pb2_model.ModelProto()
     llama_spm.ParseFromString(llama_tokenizer.sp_model.serialized_model_proto())
 
@@ -53,7 +55,7 @@ def add_vocab_2_llama(llama_tokenizer_dir, chinese_sp_model_file, output_sp_dir,
     output_hf_dir = output_hf_dir
     os.makedirs(output_sp_dir,exist_ok=True)
 
-    with open(output_sp_dir+'/chinese_llama.model', 'wb') as f:
+    with open(output_sp_dir+'/my_easy_llama.model', 'wb') as f:
         f.write(llama_spm.SerializeToString())
 
     tokenizer = LlamaTokenizer(vocab_file=output_sp_dir+'/my_easy_llama.model')
@@ -77,6 +79,7 @@ def new_tokenizer(llama_tokenizer_dir, output_hf_dir, new_model_name):
     """
 
     # 建立新增的token和在原来token相对应的字典
+    print(">>>>>建立新增的token和在原来token相对应的字典")
     token_mapping = {}
     for i in range(len(tokenizer), len(new_tokenizer)): # 32000 -> 
         token = new_tokenizer.convert_ids_to_tokens(i) # 获取当前的新token
@@ -87,10 +90,11 @@ def new_tokenizer(llama_tokenizer_dir, output_hf_dir, new_model_name):
         else:
             new_input_ids = input_ids[1:]
 
-        token_mapping[i] = new_input_id
+        token_mapping[i] = new_input_ids
+    print("<<<<<结束新增的token和在原来token相对应的字典")
 
-    """
     embeddings = model.get_input_embeddings()
+    """
     print("原始 embeddings: ", embeddings)
     print("原始 embeddings 31000: ", embeddings(torch.LongTensor([31000])))
     """
@@ -155,7 +159,7 @@ if __name__ == "__main__":
     new_model_prefix="bpe_test"
     target_vocab_size=10000
 
-    llama_tokenizer_dir="./model/Llama-2-7b-hf"
+    llama_tokenizer_dir="./meta-llama/Llama-2-7b-hf/"
     chinese_sp_model_file="./bpe_test.model"
     output_sp_dir="merged_tokenizer_sp_test"
     output_hf_dir="merged_tokenizer_hf_test"
